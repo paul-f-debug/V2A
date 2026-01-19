@@ -22,31 +22,35 @@ app.post('/api/login', (req, res) => {
     res.status(401).send('Incorrect password.');
 });
 
-// 2. UPDATED DEEP SYNC WITH ERROR FIX
+// 2. ERROR-PROOF DEEP SYNC
 app.post('/api/upload', upload.single('vcfFile'), async (req, res) => {
     try {
         const rawData = req.file.buffer.toString();
         const parsed = vcard.parse(rawData);
         
+        // --- DATA EXTRACTION ---
         const nameData = parsed.n ? parsed.n[0].value : [];
         const lastName = nameData[0] || "";
         const firstName = nameData[1] || "New Contact";
         const company = (parsed.org ? parsed.org[0].value : "") || "";
-        const googleNotes = (parsed.note ? parsed.note[0].value : "") || "";
         
-        // --- MAILING ADDRESS EXTRACTION ---
+        // --- SMART NOTES ---
+        // We combine the original notes with the State (if found) so data isn't lost
+        let finalNotes = (parsed.note ? parsed.note[0].value : "") || "";
         const addr = parsed.adr ? parsed.adr[0].value : [];
+        const stateText = addr[4] || ""; 
         
-        // FIX: We only send sub-fields if they have data.
-        // If 'state' continues to error, you can comment out the state line below.
+        if (stateText) {
+            finalNotes += `\n[Imported State: ${stateText}]`;
+        }
+        
+        // --- SAFE MAILING ADDRESS ---
+        // We OMIT 'state' here to prevent the JSON conversion error
         const mailingAddress = {
             street1: addr[2] || "",
             city: addr[3] || "",
             zipCode: addr[5] || ""
         };
-
-        // Optional: Only add state if you want to try the text value again
-        if (addr[4]) { mailingAddress.state = addr[4]; }
 
         const emailAddresses = (parsed.email || []).map((e, i) => ({
             address: e.value,
@@ -74,7 +78,7 @@ app.post('/api/upload', upload.single('vcfFile'), async (req, res) => {
             emailAddresses: emailAddresses,
             phoneNumbers: phoneNumbers,
             mailingAddress: mailingAddress,
-            notes: googleNotes,
+            notes: finalNotes, // Now includes the state!
             billingAddressSameAsMailingAddress: true 
         };
 
